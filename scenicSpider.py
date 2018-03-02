@@ -5,6 +5,7 @@ from urllib import request, parse
 from html.parser import HTMLParser
 import time
 
+import os
 import random
 
 header1 = {'User-Agent': 'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10.6; rv:2.0.1) Gecko/20100101 Firefox/4.0.1'}
@@ -34,11 +35,14 @@ class ScenicParser(HTMLParser):
 		self.in_dl = False
 		self.in_dt = False
 		self.in_dd = False
+		self.in_locationP = False
+		self.in_locationDiv = False
 		self.baseinfoIndex = ''
 		self.baseinfoItem = ''
 		self.flag = False
 		self.scenic = {}
 		self.scenic['desc'] = ''
+		self.scenic['location'] = ''
 		self.scenic['innerScenic'] = []
 
 	def handle_starttag(self, tag, attrs):
@@ -53,6 +57,10 @@ class ScenicParser(HTMLParser):
 
 		if tag == 'div' and _attr(attrs, 'class') == 'mod mod-location':
 			self.in_div = False
+			self.in_locationDiv = True
+
+		if tag == 'div' and _attr(attrs, 'class') == 'mbd clearfix':
+			self.in_locationDiv = False
 
 		if tag == 'div' and _attr(attrs, 'class') == 'summary':
 			# print('into subdiv')
@@ -71,6 +79,11 @@ class ScenicParser(HTMLParser):
 
 		if tag == 'dd' and self.in_dl:
 			self.in_dd = True
+
+		if tag == 'p' and self.in_locationDiv:
+			self.in_locationP = True
+
+
 
 		if tag == 'a' and self.in_innerScenicdiv:
 			innerScenic = {}
@@ -120,15 +133,26 @@ class ScenicParser(HTMLParser):
 			if len(data.strip())>0:
 				self.baseinfoItem = self.baseinfoItem + data.strip() + '\n'
 
+		if self.in_locationP and self.in_locationDiv:
+			if len(data.strip())>0:
+				self.scenic['location'] =data.strip()
+
 
 class ScenicUrlParser(HTMLParser):
 	def __init__(self):
 		HTMLParser.__init__(self)
-		self.urls = []
+		self.data = []
+		self.url = ''
+		self.src = ''
 
 	def handle_starttag(self, tag, attrs):
 		if tag == 'a':
-			self.urls.append('http://www.mafengwo.cn' + attrs[0][1])
+			self.url = 'http://www.mafengwo.cn' + attrs[0][1]
+		if tag == 'img':
+			self.src = attrs[0][1]
+			self.data.append({'url': self.url, 'src': self.src})
+			self.url = ''
+			self.src = ''
 
 
 class ScenicLocationParser(HTMLParser):
@@ -137,6 +161,7 @@ class ScenicLocationParser(HTMLParser):
 		self.NearbyScenicInfoList = []
 		self.NearbyScenicInfo = {}
 		self.in_span = False
+		self.in_p = False
 
 	def handle_starttag(self, tag, attrs):
 		if tag == 'li':
@@ -147,15 +172,24 @@ class ScenicLocationParser(HTMLParser):
 		if tag == 'span':
 			self.in_span = True
 
+		if tag == 'p':
+			self.in_p = True
+			print('encounter p')
+
 	def handle_endtag(self, tag):
 		if tag == 'span':
 			self.in_span = False
+		if tag == 'p':
+			self.in_p = False
 
 	def handle_data(self, data):
+		if self.in_p:
+			self.NearbyScenicInfo['location'] = data.strip()
 		if self.in_span:
 			self.NearbyScenicInfo['dist'] = data.strip()
 			self.NearbyScenicInfoList.append(self.NearbyScenicInfo)
 			self.NearbyScenicInfo = {}
+
 
 
 def getAllScenicUrl():
@@ -169,17 +203,20 @@ def getAllScenicUrl():
 	for i in range(1,46,1):
 		iPage = str(i)
 		url = url_base + '?sAct=' + sAct + '&iMddid=' +  iMddid + '&iTagId=' +  iTagId + '&iPage=' + iPage
-	try:
-		header = headers[random.randint(0,7)]
-		req = request.Request(url=url,headers = header)
-		res = request.urlopen(req, timeout = 3)
-		result = res.read().decode('utf-8')
-		result_json = json.loads(result)
-		parser = ScenicUrlParser()
-		parser.feed(result_json['data']['list'])
-		scenicUrl.extend(parser.urls)
-	except:
-		print('[ERROR] getAllScenicUrl failed!')
+		try:
+			header = headers[random.randint(0,7)]
+			req = request.Request(url=url,headers = header)
+			res = request.urlopen(req, timeout = 3)
+			result = res.read().decode('utf-8')
+			result_json = json.loads(result)
+			parser = ScenicUrlParser()
+			parser.feed(result_json['data']['list'])
+			scenicUrl.extend(parser.data)
+		except:
+			print('[ERROR] getAllScenicUrl failed!')
+
+	with open('scenicHangZhouUrls.json', 'w') as f:
+		json.dump(scenicUrl, f)
 	return scenicUrl
 
 # 通过json获取id为scenicId景区的经纬度信息、名称及附近景点和距离
@@ -208,6 +245,15 @@ def getScenicLocation(scenicId):
 	finally:
 		return scenicInfo
 
+def getScenicCommentsCount(scenicId):
+	url = 'http://pagelet.mafengwo.cn/poi/pagelet/poiCommentListApi?params={"poi_id":"' + scenicId + '"}'
+	header = headers[random.randint(0,7)]
+	req = request.Request(url = url, headers = header)
+	res = request.urlopen(req, timeout = 3)
+	result = res.read().decode('utf-8')
+	result_json = json.loads(result)
+	commentCount = result_json['data']['controller_data']['comment_count']
+	return commentCount
 
 def getScenicInfo(url):
 	try:
@@ -225,13 +271,14 @@ def getScenicInfo(url):
 
 
 def main():
-	# scenicUrls = getAllScenicUrl()
-	# scenicUrls = ['http://www.mafengwo.cn/poi/1093.html','http://www.mafengwo.cn/poi/5429426.html']
-	f = open('scenicHangZhouUrls.json', 'r')
-	content = f.read()
-	scenicUrls_temp = json.loads(content)['data']
-	scenicUrls = scenicUrls_temp
-	f.close()
+	if os.path.exists('scenicHangZhouUrls.json')
+		f = open('scenicHangZhouUrls.json', 'r')
+		content = f.read()
+		scenicUrls_temp = json.loads(content)
+		scenicUrls = scenicUrls_temp
+		f.close()
+	else:
+		scenicUrls = getAllScenicUrl()
 
 	scenicInfo = {}
 	errorList = []
@@ -242,15 +289,17 @@ def main():
 		scenicId = url.split('.')[-2].split('/')[-1]
 		getScenicInfoResult = getScenicInfo(url)
 		getScenicLocationResult = getScenicLocation(scenicId)
+		getCommentCount = getScenicCommentsCount(scenicId)
 
 		if len(getScenicInfoResult) !=0 and len(getScenicLocationResult) !=0:
 			scenicInfo[scenicId] = dict(getScenicInfoResult, **getScenicLocationResult)
 			scenicInfo[scenicId]['src'] = src
+			scenicInfo[scenicId]['commentCount'] = getCommentCount
 		else:
 			print('a new error occurred!')
 			errorList.append(url)
 		time.sleep(3)
-		if index%30==0:
+		if index%10==0:
 			with open('scenicHangZhouInfo'+ str(index) +'.json', 'w') as outfile:
 				json.dump(scenicInfo, outfile)
 
@@ -263,3 +312,5 @@ def main():
 
 if __name__ == '__main__':
 	main()
+	# getAllScenicUrl()
+	# getScenicCommentsCount('1093')
