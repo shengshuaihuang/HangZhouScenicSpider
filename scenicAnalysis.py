@@ -4,10 +4,11 @@ from html.parser import HTMLParser
 import time
 import random
 
+filePath = 'scenicHangZhouInfo_final.json'
 nopic = 'http://n4-q.mafengwo.net/s9/M00/73/E4/wKgBs1g8-y-AL_isAAHdRTpMkzU24.jpeg'
 
 def saveAsExcel():
-	f = open('scenicHangZhouInfo.json', 'r')
+	f = open(filePath, 'r')
 	scenics = json.loads(f.read())
 	f.close()
 	import xlwt
@@ -20,8 +21,8 @@ def saveAsExcel():
 
 	w = xlwt.Workbook(encoding = 'utf-8')
 	ws = w.add_sheet('scenicHangZhouInfo')
-	keys = ['name', 'id', 'src', 'lng', 'lat', 'desc', '用时参考', '网址', '电话', '门票', 'innerScenic', 'nearby']
-	row0 = ['名称', 'id', '图片', '经度', '纬度', '介绍', '用时参考', '网址', '电话', '门票', '内部景区', '附近景区']
+	keys = ['name', 'id', 'src', 'lng', 'lat', 'location', 'desc', 'commentCount', '用时参考', '网址', '电话', '门票', 'innerScenic', 'nearby']
+	row0 = ['名称', 'id', '图片', '经度', '纬度', '位置', '介绍', '评论数量', '用时参考', '网址', '电话', '门票', '内部景区', '附近景区']
 	cols = len(row0)
 	for i in range(len(row0)):
 		if i == cols -2:
@@ -41,7 +42,8 @@ def saveAsExcel():
 	count = 0
 	for scenicId in scenics:
 		scenic = scenics[scenicId]
-		if scenic['desc'] != '' and scenic['src'] != nopic:
+		# 保留简介不为空，有图片，评论数多余10条的景点
+		if scenic['desc'] != '' and scenic['src'] != nopic and scenic['commentCount'] > 10:
 			count = count + 1
 			height = max(len(scenic['innerScenic']), len(scenic['nearby']))
 			content = [scenic[key] if key in scenic.keys() else '' for key in keys]
@@ -59,13 +61,17 @@ def saveAsExcel():
 							ws.write(current_row + j, i+4, content[i][j]['lat'], style)
 							ws.write(current_row + j, i+5, content[i][j]['dist'], style)
 					else:
-						ws.write_merge(current_row, current_row + height - 1, i, i, content[i], style)
+						try:
+							ws.write_merge(current_row, current_row + height - 1, i, i, content[i], style)
+						except:
+							print(current_row, current_row + height - 1, i, i, content[i])
 				current_row = current_row + height + 1
-	w.save('result.xls')
+	w.save('scenicHangZhouInfo.xls')
 	print(count)
 
+
 def getSingleScenic(scenicId, *args):
-	f = open('scenicHangZhouInfo.json', 'r')
+	f = open(filePath, 'r')
 	scenics = json.loads(f.read())
 	f.close()
 
@@ -83,7 +89,7 @@ def getSingleScenic(scenicId, *args):
 
 
 def getScenicByKey(queryKeys, **kwargs):
-	f = open('scenicHangZhouInfo.json', 'r')
+	f = open(filePath, 'r')
 	scenics = json.loads(f.read())
 	f.close()
 	flag = False
@@ -116,4 +122,4 @@ if __name__ == '__main__':
 	# print(scenicInfo)
 
 	# print(getSingleScenic('1093').keys())
-	# saveAsExcel()
+	saveAsExcel()
